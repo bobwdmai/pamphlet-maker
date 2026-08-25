@@ -3,9 +3,37 @@
   "version": "1.0.0",
   "private": true,
   "description": "Turns a page-per-sheet PDF into a print-ready saddle-stitch booklet PDF, entirely client-side.",
+  "main": "electron/main.js",
   "scripts": {
     "test": "node --test",
-    "build": "node build/make-dist.js"
+    "build": "node build/make-dist.js",
+    "make:icon": "node build/make-icon.js",
+    "start:electron": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win portable"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.3"
+  },
+  "build": {
+    "appId": "local.book-maker",
+    "productName": "Book Maker",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/**",
+      "dist/**",
+      "!dist/**/*.map"
+    ],
+    "win": {
+      "icon": "electron/icon.ico",
+      "target": [
+        "portable"
+      ]
+    }
+  }
 }

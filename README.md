@@ -66,6 +66,26 @@ else to copy around. The structured files under `src/`/`assets/`/`vendor/`
 remain the source of truth; `dist/index.html` is a generated artifact (not
 committed — see `.gitignore`).
 
+## Packaging as a Windows app
+
+```
+npm install
+npm run dist:win
+```
+
+Produces a portable `release/Book Maker <version>.exe` — a self-contained
+Electron wrapper around `dist/index.html` (built automatically as part of
+this command), no installer, no admin rights needed. `npm run start:electron`
+runs the same wrapper locally without packaging, for a quick check.
+
+`npm run make:icon` regenerates `electron/icon.ico`/`electron/icon.png` from
+the inline SVG in `build/make-icon.js` if the branding ever changes; the
+generated icons are committed so packaging doesn't require re-running it.
+
+This is a thin wrapper, not a rewrite — the app inside is exactly
+`dist/index.html`, so anything that works in the browser build works in the
+packaged one.
+
 ## Known limitations
 
 - **Layout preview** shows a schematic diagram (which page number lands on

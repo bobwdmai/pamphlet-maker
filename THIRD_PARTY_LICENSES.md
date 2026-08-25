@@ -41,10 +41,12 @@ internally. Its license notice (Apache License 2.0 / 0BSD depending on
 version) is preserved as-is in the header of `vendor/pdf-lib.min.js` and is
 not reproduced separately here.
 
-## Book Maker's own EXE packaging (Electron)
+## Windows EXE packaging (Electron)
 
-The optional Windows packaging (see `electron/`, if present) uses
-[Electron](https://www.electronjs.org/) (MIT) and
-[electron-builder](https://www.electron.build/) (MIT) as development-time
-tooling only — neither ships inside the browser app itself. See each
-project's own repository for their full license text.
+The optional `npm run dist:win` packaging (see `electron/`) bundles
+[Electron](https://www.electronjs.org/) (MIT) as the app runtime for the
+packaged .exe only — the browser version (`index.html` / `dist/index.html`)
+doesn't include or depend on it.
+[electron-builder](https://www.electron.build/) (MIT) is a development-time
+packaging tool and isn't shipped in either build. See each project's own
+repository for full license text.
