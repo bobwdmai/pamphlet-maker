@@ -14,6 +14,8 @@ const {
   normalizeRotation,
   effectiveDimensions,
   computeRotatedPlacement,
+  estimateFitScale,
+  suggestFullScalePaper,
 } = imposition;
 
 // ---------------------------------------------------------------------
@@ -358,4 +360,69 @@ test('computeRotatedPlacement: 180-degree source rotation lands on the target bo
 
 test('computeRotatedPlacement: 270-degree source rotation lands on the target box', () => {
   assertPlacementLandsOnTarget(270);
+});
+
+// ---------------------------------------------------------------------
+// estimateFitScale / suggestFullScalePaper
+// ---------------------------------------------------------------------
+
+test('estimateFitScale: a full-Letter source page shrinks noticeably on a Letter sheet', () => {
+  // Half of an 11x8.5in landscape Letter sheet, minus margins, is nowhere
+  // near big enough to hold a full 8.5x11in portrait page at 100%.
+  const scale = estimateFitScale({
+    pageWidthPt: 8.5 * 72,
+    pageHeightPt: 11 * 72,
+    sheetWidthPt: 11 * 72,
+    sheetHeightPt: 8.5 * 72,
+    outerMarginPt: 0.35 * 72,
+    gutterMarginPt: 0.15 * 72,
+  });
+  assert.ok(scale > 0 && scale < 0.7, `expected a noticeable shrink, got scale=${scale}`);
+});
+
+test('estimateFitScale: a half-letter (5.5x8.5in) page fits a Letter sheet at ~100%', () => {
+  const scale = estimateFitScale({
+    pageWidthPt: 5.5 * 72,
+    pageHeightPt: 8.5 * 72,
+    sheetWidthPt: 11 * 72,
+    sheetHeightPt: 8.5 * 72,
+    outerMarginPt: 0.35 * 72,
+    gutterMarginPt: 0.15 * 72,
+  });
+  // Won't be exactly 1 (margins eat into it) but should be close, not a
+  // drastic shrink like the full-Letter-on-Letter case above.
+  assert.ok(scale > 0.8 && scale <= 1, `expected close to full size, got scale=${scale}`);
+});
+
+test('estimateFitScale: returns null for invalid inputs, 0 when margins consume the whole sheet', () => {
+  assert.equal(estimateFitScale({ pageWidthPt: 0, pageHeightPt: 100, sheetWidthPt: 100, sheetHeightPt: 100, outerMarginPt: 0, gutterMarginPt: 0 }), null);
+  const zero = estimateFitScale({
+    pageWidthPt: 100, pageHeightPt: 100, sheetWidthPt: 100, sheetHeightPt: 100, outerMarginPt: 60, gutterMarginPt: 60,
+  });
+  assert.equal(zero, 0);
+});
+
+test('suggestFullScalePaper: recommends the smallest preset that avoids shrinking', () => {
+  // With real margins, a full Letter-size (8.5x11in) source page needs
+  // meaningfully more than double the paper to print at 100% — neither
+  // Tabloid nor A3 is quite enough once margins are subtracted (this is
+  // exactly the "your page will shrink more than you might expect" trap
+  // this function exists to warn people about). Only the largest preset
+  // here should qualify.
+  const presets = [
+    { key: 'letter', widthPt: 8.5 * 72, heightPt: 11 * 72 },
+    { key: 'tabloid', widthPt: 11 * 72, heightPt: 17 * 72 },
+    { key: 'a3', widthPt: 11.6929 * 72, heightPt: 16.5354 * 72 },
+    { key: 'ansi_c', widthPt: 17 * 72, heightPt: 22 * 72 },
+  ];
+  const suggestion = suggestFullScalePaper(8.5 * 72, 11 * 72, 0.35 * 72, 0.15 * 72, presets);
+  assert.equal(suggestion, 'ansi_c');
+});
+
+test('suggestFullScalePaper: returns null when nothing in the list is big enough', () => {
+  const presets = [
+    { key: 'letter', widthPt: 8.5 * 72, heightPt: 11 * 72 },
+  ];
+  const suggestion = suggestFullScalePaper(20 * 72, 30 * 72, 0.35 * 72, 0.15 * 72, presets);
+  assert.equal(suggestion, null);
 });

@@ -267,6 +267,51 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Fit-scale estimate — how much a source page shrinks to fit its half-sheet
+  // ---------------------------------------------------------------------
+
+  /**
+   * A page is scaled uniformly to fit its half of the sheet, so text and
+   * images shrink together — there's no way to keep text full-size while
+   * only images shrink (that would mean re-typesetting the document, not
+   * imposing it). This estimates that scale factor up front, using the
+   * outer/gutter margins of a left-hand half (close enough for a heads-up
+   * warning; the real per-page placement in drawImposedSide accounts for
+   * rotation and exact left/right margins).
+   */
+  function estimateFitScale({ pageWidthPt, pageHeightPt, sheetWidthPt, sheetHeightPt, outerMarginPt, gutterMarginPt }) {
+    if (!Number.isFinite(pageWidthPt) || !Number.isFinite(pageHeightPt) || pageWidthPt <= 0 || pageHeightPt <= 0) return null;
+    if (!Number.isFinite(sheetWidthPt) || !Number.isFinite(sheetHeightPt) || sheetWidthPt <= 0 || sheetHeightPt <= 0) return null;
+    const halfWidth = sheetWidthPt / 2;
+    const margins = computeHalfMargins(true, outerMarginPt, gutterMarginPt);
+    const availW = halfWidth - margins.left - margins.right;
+    const availH = sheetHeightPt - 2 * outerMarginPt;
+    if (availW <= 0 || availH <= 0) return 0;
+    return Math.min(availW / pageWidthPt, availH / pageHeightPt);
+  }
+
+  /**
+   * Among a list of { key, widthPt, heightPt } sheet presets, the smallest
+   * one (by area) that would let a page of the given size print at 100%
+   * scale (no shrink) with the given margins — or null if none of them fit.
+   * Presets are tried in both orientations since the caller always ends up
+   * printing landscape (the longer side becomes sheetWidthPt).
+   */
+  function suggestFullScalePaper(pageWidthPt, pageHeightPt, outerMarginPt, gutterMarginPt, presets) {
+    let best = null;
+    for (const preset of presets) {
+      const sheetWidthPt = Math.max(preset.widthPt, preset.heightPt);
+      const sheetHeightPt = Math.min(preset.widthPt, preset.heightPt);
+      const scale = estimateFitScale({ pageWidthPt, pageHeightPt, sheetWidthPt, sheetHeightPt, outerMarginPt, gutterMarginPt });
+      if (scale !== null && scale >= 1) {
+        const area = sheetWidthPt * sheetHeightPt;
+        if (!best || area < best.area) best = { key: preset.key, area };
+      }
+    }
+    return best ? best.key : null;
+  }
+
   return {
     paddedCount,
     sheetsForRange,
@@ -279,5 +324,7 @@
     normalizeRotation,
     effectiveDimensions,
     computeRotatedPlacement,
+    estimateFitScale,
+    suggestFullScalePaper,
   };
 });

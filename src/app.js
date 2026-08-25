@@ -1,7 +1,7 @@
 (function () {
 'use strict';
 
-const { PDFDocument, rgb, degrees } = PDFLib;
+const { PDFDocument, PDFName, rgb, degrees } = PDFLib;
 const {
   paddedCount,
   buildBalancedSignatures,
@@ -11,6 +11,8 @@ const {
   normalizeRotation,
   effectiveDimensions,
   computeRotatedPlacement,
+  estimateFitScale,
+  suggestFullScalePaper,
 } = BookMakerImposition;
 
 const PAPER_SIZES_IN = {
@@ -25,6 +27,8 @@ const IN_TO_PT = 72;
 let sourceBytes = null;
 let sourceFileName = '';
 let sourcePageCount = 0;
+let sourcePageWidthPt = null;
+let sourcePageHeightPt = null;
 let generatedFiles = [];
 
 const fileInput = document.getElementById('fileInput');
@@ -120,6 +124,8 @@ async function loadFile(file) {
     sourceBytes = null;
     sourceFileName = '';
     sourcePageCount = 0;
+    sourcePageWidthPt = null;
+    sourcePageHeightPt = null;
     summaryEl.innerHTML = '';
     generateBtn.disabled = true;
     calibrateBtn.disabled = true;
@@ -131,6 +137,14 @@ async function loadFile(file) {
     sourceFileName = file.name || '';
     const doc = await PDFDocument.load(sourceBytes);
     sourcePageCount = doc.getPageCount();
+    if (sourcePageCount > 0) {
+      const size = doc.getPage(0).getSize();
+      sourcePageWidthPt = size.width;
+      sourcePageHeightPt = size.height;
+    } else {
+      sourcePageWidthPt = null;
+      sourcePageHeightPt = null;
+    }
     generateBtn.disabled = sourcePageCount === 0;
     calibrateBtn.disabled = sourcePageCount === 0;
     updateSummary();
@@ -162,8 +176,50 @@ function updateSummary() {
     <div><span class="ok">${sourcePageCount} pages</span> detected.</div>
     <div>${blanks > 0 ? blanks + ' blank page(s) will be added at the end so the booklet folds evenly.' : 'Page count is already a multiple of 4 — no blank pages needed.'}</div>
     <div>${totalSheets} physical sheet(s) total${signatures.length > 1 ? `, split into ${signatures.length} balanced signatures` : ''}.</div>
+    ${scaleWarningHtml()}
   `;
   renderLayoutPreview(signatures);
+}
+
+/**
+ * A page is scaled uniformly to fit its half of the sheet — text and
+ * images shrink together, there's no way to keep text full-size while only
+ * images shrink (that would mean re-typesetting, not imposing). Surfacing
+ * the actual scale up front turns "why is my text tiny" into something the
+ * user can see coming and do something about, rather than a surprise after
+ * printing.
+ */
+function scaleWarningHtml() {
+  const opts = readOptionsQuiet();
+  if (!opts || !sourcePageWidthPt || !sourcePageHeightPt) return '';
+  const scale = estimateFitScale({
+    pageWidthPt: sourcePageWidthPt,
+    pageHeightPt: sourcePageHeightPt,
+    sheetWidthPt: opts.sheetWidthPt,
+    sheetHeightPt: opts.sheetHeightPt,
+    outerMarginPt: opts.outerMarginPt,
+    gutterMarginPt: opts.gutterMarginPt,
+  });
+  if (scale === null) return '';
+  const pct = Math.round(scale * 100);
+  if (scale >= 0.97) {
+    return `<div>Pages will print at about <span class="ok">${pct}%</span> of their original size.</div>`;
+  }
+
+  const presets = Object.entries(PAPER_SIZES_IN).map(([key, [w, h]]) => ({
+    key, widthPt: w * IN_TO_PT, heightPt: h * IN_TO_PT,
+  }));
+  const betterPaper = suggestFullScalePaper(sourcePageWidthPt, sourcePageHeightPt, opts.outerMarginPt, opts.gutterMarginPt, presets);
+  const paperSentence = betterPaper && betterPaper !== paperSizeSel.value
+    ? ` Switching paper size to <strong>${escapeHtml(paperSizeSel.querySelector(`option[value="${betterPaper}"]`)?.text || betterPaper)}</strong> would print it at full size.`
+    : ' None of the paper sizes above are big enough to avoid shrinking this page.';
+
+  return `
+    <div class="warn">
+      Pages will print at only about ${pct}% of their original size — text and images shrink together (there's no way to keep text full-size while only shrinking images, that would mean re-typesetting the document).${paperSentence}
+      For full-size text, the standard fix is to set your source document's page size to roughly half the sheet size (e.g. 5.5 × 8.5 in for a Letter sheet) before exporting from Google Docs.
+    </div>
+  `;
 }
 
 /**
@@ -302,10 +358,22 @@ function yieldToUi() {
  * origin hits a separate pdf-lib quirk (setMediaBox with an inset origin
  * doesn't shift page content to compensate), so that rarer case is left
  * alone rather than applying a fix that would make alignment worse.
+ *
+ * Also: a page with no /Contents entry at all (a genuinely empty page —
+ * seen in the wild from at least one real-world export tool, on a trailing
+ * blank page) makes pdf-lib's embedder throw "Can't embed page with
+ * missing Contents" and abort the *entire* generation. translateContent(0,
+ * 0) is a public pdf-lib API that, as a side effect of moving a page's
+ * content by nothing, forces a real (empty) content stream into existence
+ * — so a blank page just embeds as blank instead of crashing the whole job.
  */
 async function loadPreparedSource(bytes) {
   const doc = await PDFDocument.load(bytes);
   for (const page of doc.getPages()) {
+    if (!page.node.has(PDFName.of('Contents'))) {
+      page.translateContent(0, 0);
+    }
+
     const media = page.getMediaBox();
     const crop = page.getCropBox();
     const differs = Math.abs(media.x - crop.x) > 0.01 || Math.abs(media.y - crop.y) > 0.01 ||
