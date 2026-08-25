@@ -1,8 +1,8 @@
 /**
- * Book Maker — imposition math.
+ * Pamphlet Maker — imposition math.
  *
  * Pure functions only: no DOM, no pdf-lib. Loadable both as a browser
- * <script> (exposes `window.BookMakerImposition`) and via `require()` from
+ * <script> (exposes `window.PamphletMakerImposition`) and via `require()` from
  * Node tests (exposes `module.exports`), so the same code that ships is the
  * code the test suite checks.
  */
@@ -11,7 +11,7 @@
   if (typeof module === 'object' && module.exports) {
     module.exports = mod;
   } else {
-    root.BookMakerImposition = mod;
+    root.PamphletMakerImposition = mod;
   }
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';

@@ -13,7 +13,7 @@ const {
   computeRotatedPlacement,
   estimateFitScale,
   suggestFullScalePaper,
-} = BookMakerImposition;
+} = PamphletMakerImposition;
 
 const PAPER_SIZES_IN = {
   letter: [8.5, 11],
@@ -585,7 +585,7 @@ async function generateCalibrationSheet() {
   }
 
   const n = paddedCount(sourcePageCount);
-  const sheets = BookMakerImposition.sheetsForRange(1, Math.min(n, 4) || 4);
+  const sheets = PamphletMakerImposition.sheetsForRange(1, Math.min(n, 4) || 4);
   const firstSheet = sheets[0];
 
   const doc = await PDFDocument.create();
@@ -688,7 +688,7 @@ function escapeHtml(s) {
 
 function getThemeOverride() {
   try {
-    const saved = localStorage.getItem('bookMakerTheme');
+    const saved = localStorage.getItem('pamphletMakerTheme');
     return saved === 'light' || saved === 'dark' ? saved : 'system';
   } catch (_error) {
     return 'system';
@@ -702,7 +702,7 @@ function applyPageTheme(theme) {
   }
 }
 function setPageTheme(theme) {
-  try { localStorage.setItem('bookMakerTheme', theme); } catch (_error) { /* choice just won't stick */ }
+  try { localStorage.setItem('pamphletMakerTheme', theme); } catch (_error) { /* choice just won't stick */ }
   applyPageTheme(theme);
 }
 applyPageTheme(getThemeOverride());

@@ -3,14 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Book Maker — Booklet Imposition</title>
+<title>Pamphlet Maker — Booklet Imposition</title>
 <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
 <div class="wrap">
   <div class="titlebar">
-    <h1><span class="app-logo"><span>📖</span></span> Book Maker</h1>
+    <h1><span class="app-logo"><span>📖</span></span> Pamphlet Maker</h1>
     <div class="header-actions">
+      <a class="donate-button" href="https://donate.stripe.com/9B66oHachgEV8i371S7kc05" target="_blank" rel="noopener noreferrer">♥ Donate</a>
       <button class="help-button" id="themeCycle" type="button" aria-label="Cycle color theme" title="Cycle theme">🌗</button>
       <button class="help-button" id="helpBtn" type="button" aria-label="Open help" title="Help">?</button>
     </div>
@@ -20,7 +21,7 @@
   <main>
     <div class="panel">
       <h2><span class="badge">1</span> Choose your file</h2>
-      <label class="field-label" for="fileInput">Book PDF file</label>
+      <label class="field-label" for="fileInput">Source PDF file</label>
       <div class="dropzone" id="dropzone">
         <input type="file" id="fileInput" accept="application/pdf" aria-describedby="dropzoneHint" />
         <p class="dropzone-hint" id="dropzoneHint">Drag and drop a PDF here, or use the picker above.</p>
@@ -55,7 +56,7 @@
       <div class="row" style="margin-top:.5rem">
         <div class="field">
           <label for="outerMargin">Outer margin (in)</label>
-          <input type="number" id="outerMargin" step="0.05" min="0" max="5" value="0.35" />
+          <input type="number" id="outerMargin" step="0.05" min="0" max="5" value="0" />
         </div>
         <div class="field">
           <label for="gutterMargin">Extra spine/fold margin (in)</label>
@@ -137,7 +138,7 @@
 <div class="qr-popover" id="helpPopover" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
   <section class="tutorial-card">
     <div class="tutorial-titlebar">
-      <h2 id="helpTitle">How Book Maker works</h2>
+      <h2 id="helpTitle">How Pamphlet Maker works</h2>
       <button class="help-button" id="helpCloseTop" type="button" aria-label="Close help" title="Close">×</button>
     </div>
     <div class="tutorial-content">

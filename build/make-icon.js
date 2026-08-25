@@ -27,7 +27,7 @@ const svg = `
 (async () => {
   // png-to-ico's own writer only understands square 16/32/48/256px inputs.
   const icoSizes = [16, 32, 48, 256];
-  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'book-maker-icon-'));
+  const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'pamphlet-maker-icon-'));
   const tmpFiles = await Promise.all(
     icoSizes.map(async (size) => {
       const file = path.join(tmpDir, `icon-${size}.png`);

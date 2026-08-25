@@ -1,4 +1,4 @@
-# Book Maker
+# Pamphlet Maker
 
 Turns a page-per-sheet PDF (for example, one exported from Google Docs via
 File → Download → PDF Document) into a print-ready, saddle-stitch booklet:
@@ -26,7 +26,7 @@ src/imposition.js           Pure imposition math (no DOM, no pdf-lib) — the
                              saddle-stitch ordering, signature balancing,
                              margin/validation, creep, and rotated/cropped
                              page placement logic. Loadable as a browser
-                             <script> (window.BookMakerImposition) or via
+                             <script> (window.PamphletMakerImposition) or via
                              require() from Node (tests use the latter).
 src/app.js                  DOM wiring: file loading & drag-and-drop, options
                              form, sequential PDF generation with progress,
@@ -73,7 +73,7 @@ npm install
 npm run dist:win
 ```
 
-Produces a portable `release/Book Maker <version>.exe` — a self-contained
+Produces a portable `release/Pamphlet Maker <version>.exe` — a self-contained
 Electron wrapper around `dist/index.html` (built automatically as part of
 this command), no installer, no admin rights needed. `npm run start:electron`
 runs the same wrapper locally without packaging, for a quick check.

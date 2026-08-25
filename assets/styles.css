@@ -239,6 +239,23 @@ button:disabled { opacity: .5; cursor: not-allowed; transform: none; box-shadow:
   font-size: 15px;
   line-height: 1;
 }
+.donate-button {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 .8rem;
+  border: 1px solid #d94f80;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ec6a99 0%, #d94f80 100%);
+  color: #fff;
+  font-size: .8rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 4px 10px rgba(217, 79, 128, 0.3);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.donate-button:hover { background: linear-gradient(180deg, #f07caa 0%, #e35a8c 100%); transform: translateY(-1px); }
+.donate-button:active { transform: translateY(0); }
 .hint { font-size: .8rem; color: var(--text-muted); margin-top: .35rem; }
 #summary { font-size: .9rem; line-height: 1.6; }
 #summary .ok { color: var(--ok); font-weight: 700; }
