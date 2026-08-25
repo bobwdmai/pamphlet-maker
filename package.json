@@ -1,0 +1,11 @@
+{
+  "name": "book-maker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Turns a page-per-sheet PDF into a print-ready saddle-stitch booklet PDF, entirely client-side.",
+  "scripts": {
+    "test": "node --test",
+    "build": "node build/make-dist.js"
+  },
+  "license": "UNLICENSED"
+}
