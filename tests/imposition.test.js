@@ -8,7 +8,6 @@ const {
   buildSignatures,
   balanceSignatureSizes,
   buildBalancedSignatures,
-  orderSheetsForPrinting,
   computeHalfMargins,
   validateLayoutOptions,
   creepShiftForSheet,
@@ -154,71 +153,6 @@ test('buildBalancedSignatures stays complete, unique, and internally valid', () 
   for (const sig of sigs) {
     const size = sig.endPage - sig.startPage + 1;
     assert.ok(size % 4 === 0);
-  }
-});
-
-// ---------------------------------------------------------------------
-// orderSheetsForPrinting
-// ---------------------------------------------------------------------
-
-test('orderSheetsForPrinting: no blank pages — print order matches natural order', () => {
-  const n = 16; // multiple of 4, no padding needed
-  const signatures = buildBalancedSignatures(n, n);
-  const ordered = orderSheetsForPrinting(signatures, n);
-  const naturalFronts = signatures[0].sheets.map((s) => s.front.join(','));
-  const orderedFronts = ordered.map((o) => o.sheet.front.join(','));
-  assert.deepEqual(orderedFronts, naturalFronts);
-});
-
-test('orderSheetsForPrinting: the blank-containing sheet prints last, not first', () => {
-  const totalReal = 17;
-  const n = paddedCount(totalReal); // 20, 3 blanks
-  const signatures = buildBalancedSignatures(n, n); // single signature
-  const naturalSheets = signatures[0].sheets;
-  // Natural order puts the cover (blanks) sheet first.
-  assert.ok(naturalSheets[0].front.some((p) => p > totalReal));
-
-  const ordered = orderSheetsForPrinting(signatures, totalReal);
-  const last = ordered[ordered.length - 1];
-  assert.ok(
-    last.sheet.front.some((p) => p > totalReal) || last.sheet.back.some((p) => p > totalReal),
-    'the sheet with a blank page should print last',
-  );
-  // First-printed sheet should be fully real (no blanks).
-  const first = ordered[0];
-  assert.ok(![...first.sheet.front, ...first.sheet.back].some((p) => p > totalReal));
-});
-
-test('orderSheetsForPrinting: reordering only touches sheet order, not page assignment', () => {
-  const totalReal = 17;
-  const n = paddedCount(totalReal);
-  const signatures = buildBalancedSignatures(n, n);
-  const ordered = orderSheetsForPrinting(signatures, totalReal);
-  assertCompleteAndUnique(ordered.map((o) => o.sheet), 1, n);
-});
-
-test('orderSheetsForPrinting: sheetIndexFromOutside still reflects true fold position (0 = outermost), unaffected by print order', () => {
-  const totalReal = 17;
-  const n = paddedCount(totalReal);
-  const signatures = buildBalancedSignatures(n, n);
-  const ordered = orderSheetsForPrinting(signatures, totalReal);
-  // The blank-containing (outermost, index 0) sheet now prints last, but
-  // should still be *labeled* index 0 for creep purposes.
-  const last = ordered[ordered.length - 1];
-  assert.equal(last.sheetIndexFromOutside, 0);
-});
-
-test('orderSheetsForPrinting: only the signature with blanks is reversed, earlier signatures are untouched', () => {
-  const totalReal = 68; // exactly a multiple of 4 -> no blanks anywhere
-  const n = paddedCount(totalReal);
-  const signatures = buildBalancedSignatures(n, 32); // multiple signatures, none with blanks
-  const ordered = orderSheetsForPrinting(signatures, totalReal);
-  let flatIdx = 0;
-  for (const sig of signatures) {
-    for (let i = 0; i < sig.sheets.length; i++) {
-      assert.deepEqual(ordered[flatIdx].sheet, sig.sheets[i]);
-      flatIdx++;
-    }
   }
 });
 

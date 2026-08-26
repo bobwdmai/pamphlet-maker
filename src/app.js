@@ -7,7 +7,6 @@ const {
 const {
   paddedCount,
   buildBalancedSignatures,
-  orderSheetsForPrinting,
   computeHalfMargins,
   validateLayoutOptions,
   creepShiftForSheet,
@@ -259,27 +258,28 @@ function renderLayoutPreview(signatures) {
   const h = Math.round(w / aspect);
 
   let sheetNumber = 0;
-  let lastSheetRef = null;
-  for (const { sheet } of orderSheetsForPrinting(signatures, sourcePageCount)) {
-    if (sheet !== lastSheetRef) { sheetNumber += 1; lastSheetRef = sheet; }
-    ['front', 'back'].forEach((side) => {
-      const [left, right] = sheet[side];
-      const wrap = document.createElement('div');
-      wrap.className = 'preview-sheet';
-      wrap.innerHTML = `
-        <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Sheet ${sheetNumber} ${side}: page ${left} on the left, page ${right} on the right">
-          <rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" fill="none" stroke="currentColor" stroke-width="1" opacity="0.35"/>
-          <line x1="${w / 2}" y1="0" x2="${w / 2}" y2="${h}" stroke="currentColor" stroke-width="1" stroke-dasharray="3,3" opacity="0.35"/>
-          <text x="${w / 4}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle" font-size="16" fill="currentColor">${left > sourcePageCount ? '—' : left}</text>
-          <text x="${3 * w / 4}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle" font-size="16" fill="currentColor">${right > sourcePageCount ? '—' : right}</text>
-        </svg>
-      `;
-      const label = document.createElement('div');
-      label.className = 'preview-sheet-label';
-      label.textContent = `Sheet ${sheetNumber} · ${side}`;
-      wrap.appendChild(label);
-      previewGridEl.appendChild(wrap);
-    });
+  for (const sig of signatures) {
+    for (const sheet of sig.sheets) {
+      sheetNumber += 1;
+      ['front', 'back'].forEach((side) => {
+        const [left, right] = sheet[side];
+        const wrap = document.createElement('div');
+        wrap.className = 'preview-sheet';
+        wrap.innerHTML = `
+          <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Sheet ${sheetNumber} ${side}: page ${left} on the left, page ${right} on the right">
+            <rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" fill="none" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+            <line x1="${w / 2}" y1="0" x2="${w / 2}" y2="${h}" stroke="currentColor" stroke-width="1" stroke-dasharray="3,3" opacity="0.35"/>
+            <text x="${w / 4}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle" font-size="16" fill="currentColor">${left > sourcePageCount ? '—' : left}</text>
+            <text x="${3 * w / 4}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle" font-size="16" fill="currentColor">${right > sourcePageCount ? '—' : right}</text>
+          </svg>
+        `;
+        const label = document.createElement('div');
+        label.className = 'preview-sheet-label';
+        label.textContent = `Sheet ${sheetNumber} · ${side}`;
+        wrap.appendChild(label);
+        previewGridEl.appendChild(wrap);
+      });
+    }
   }
 }
 
@@ -651,8 +651,8 @@ async function generate() {
     const doc = await PDFDocument.create();
     const srcDoc = await loadPreparedSource(sourceBytes);
     const embeddedPages = await doc.embedPages(srcDoc.getPages(), computeEmbedBoundingBoxes(srcDoc));
-    for (const { signature, sheet, sheetIndexFromOutside } of sheetOrder) {
-      const creepShiftPt = creepShiftForSheetInSignature(sheetIndexFromOutside, signature, opts);
+    for (const { sig, sheet, sheetIndex } of sheetOrder) {
+      const creepShiftPt = creepShiftForSheetInSignature(sheetIndex, sig, opts);
       for (const side of sideSelector(sheet)) {
         drawImposedSide(doc, opts, side.slot, srcDoc, embeddedPages, creepShiftPt);
         if (side.rotate180) {
@@ -668,14 +668,11 @@ async function generate() {
     return bytes;
   }
 
-  // Flat sheet list with signature context, in print order rather than
-  // fold-position order: sheetsForRange always puts the outermost (cover)
-  // sheet first, which is where blank padding pages land, so printing in
-  // that order would put blank pages first in the file. Printing the
-  // blank-containing sheet last instead has no effect on the assembled
-  // book — sheets get folded and nested by hand afterward regardless of
-  // what order they came out of the printer.
-  const flatSheets = orderSheetsForPrinting(signatures, sourcePageCount);
+  // Flat sheet list with signature context, used by both combined & split passes.
+  const flatSheets = [];
+  for (const sig of signatures) {
+    sig.sheets.forEach((sheet, sheetIndex) => flatSheets.push({ sig, sheet, sheetIndex }));
+  }
 
   const combinedBytes = await renderPass(
     'Combined',

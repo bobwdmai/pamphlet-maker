@@ -120,40 +120,6 @@
     return signatures;
   }
 
-  /**
-   * The order sheets get printed in, as opposed to the order
-   * sheetsForRange numbers them. Printing order doesn't have to match
-   * fold-position order: each sheet's front/back stay paired, but which
-   * sheet comes first in the file has no effect on the assembled book —
-   * you fold and nest them by hand afterward regardless. sheetsForRange
-   * always puts the outermost (cover) sheet first (index 0), which is
-   * where any blank padding pages end up; printing that sheet first means
-   * blank pages are the very first thing you see in the file. Reversing
-   * print order *within* whichever signature actually has blank pages
-   * (only ever the last one, since padding is added at the end) puts that
-   * sheet last instead — signatures without blanks are untouched.
-   *
-   * Returns a flat list of { signature, sheet, sheetIndexFromOutside } —
-   * sheetIndexFromOutside is unchanged by the reordering (0 = outermost),
-   * since creep compensation cares about physical fold position, not
-   * print order.
-   */
-  function orderSheetsForPrinting(signatures, totalRealPages) {
-    const ordered = [];
-    for (const signature of signatures) {
-      const hasBlanks = signature.endPage > totalRealPages;
-      const sheets = signature.sheets;
-      if (hasBlanks) {
-        for (let i = sheets.length - 1; i >= 0; i--) {
-          ordered.push({ signature, sheet: sheets[i], sheetIndexFromOutside: i });
-        }
-      } else {
-        sheets.forEach((sheet, i) => ordered.push({ signature, sheet, sheetIndexFromOutside: i }));
-      }
-    }
-    return ordered;
-  }
-
   // ---------------------------------------------------------------------
   // Layout: margins, validation, creep
   // ---------------------------------------------------------------------
@@ -442,7 +408,6 @@
     buildSignatures,
     balanceSignatureSizes,
     buildBalancedSignatures,
-    orderSheetsForPrinting,
     computeHalfMargins,
     validateLayoutOptions,
     creepShiftForSheet,
