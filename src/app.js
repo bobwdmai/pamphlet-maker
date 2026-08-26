@@ -178,11 +178,27 @@ function updateSummary() {
   const totalSheets = n / 4;
   summaryEl.innerHTML = `
     <div><span class="ok">${sourcePageCount} pages</span> detected.</div>
-    <div>${blanks > 0 ? blanks + ' blank page(s) will be added at the end so the booklet folds evenly.' : 'Page count is already a multiple of 4 — no blank pages needed.'}</div>
+    <div>${blankPagesExplanationHtml(blanks)}</div>
     <div>${totalSheets} physical sheet(s) total${signatures.length > 1 ? `, split into ${signatures.length} balanced signatures` : ''}.</div>
     ${scaleWarningHtml()}
   `;
   renderLayoutPreview(signatures);
+}
+
+/**
+ * A folded sheet always contributes exactly 4 pages to a saddle-stitch
+ * book — there's no such thing as folding 3/4 of a sheet — so a page count
+ * that isn't a multiple of 4 needs blank filler pages to complete the last
+ * sheet. This is standard for any saddle-stitch book, not specific to this
+ * tool; the explanation exists so blank pages read as expected rather than
+ * as a surprise.
+ */
+function blankPagesExplanationHtml(blanks) {
+  if (blanks === 0) return 'Page count is already a multiple of 4 — no blank pages needed.';
+  const where = blanks === 1
+    ? 'your back cover'
+    : `your back cover and the ${blanks - 1} page${blanks - 1 > 1 ? 's' : ''} just before it`;
+  return `A folded sheet always makes 4 pages, so ${blanks} blank page${blanks > 1 ? 's' : ''} will fill out the last one — they'll become ${where}. To avoid blanks entirely, add or remove pages in your source document until the count is a multiple of 4.`;
 }
 
 /**
