@@ -16,6 +16,8 @@ const {
   computeRotatedPlacement,
   estimateFitScale,
   suggestFullScalePaper,
+  multiplyMatrix,
+  computeAppearanceMatrix,
 } = imposition;
 
 // ---------------------------------------------------------------------
@@ -425,4 +427,53 @@ test('suggestFullScalePaper: returns null when nothing in the list is big enough
   ];
   const suggestion = suggestFullScalePaper(20 * 72, 30 * 72, 0.35 * 72, 0.15 * 72, presets);
   assert.equal(suggestion, null);
+});
+
+// ---------------------------------------------------------------------
+// multiplyMatrix / computeAppearanceMatrix — annotation flattening math
+// ---------------------------------------------------------------------
+
+function applyMatrix([x, y], [a, b, c, d, e, f]) {
+  return [x * a + y * c + e, x * b + y * d + f];
+}
+
+test('multiplyMatrix: composes translate then scale correctly', () => {
+  const translate = [1, 0, 0, 1, 10, 20];
+  const scale = [2, 0, 0, 3, 0, 0];
+  const combined = multiplyMatrix(translate, scale);
+  assert.deepEqual(applyMatrix([0, 0], combined), [20, 60]);
+});
+
+test('computeAppearanceMatrix: identity appearance matrix, translate-only fit', () => {
+  const m = computeAppearanceMatrix([0, 0, 100, 100], [1, 0, 0, 1, 0, 0], [50, 50, 150, 150]);
+  assert.deepEqual(applyMatrix([0, 0], m), [50, 50]);
+  assert.deepEqual(applyMatrix([100, 100], m), [150, 150]);
+});
+
+test('computeAppearanceMatrix: scales a smaller BBox up to fill a bigger Rect', () => {
+  const m = computeAppearanceMatrix([0, 0, 50, 50], [1, 0, 0, 1, 0, 0], [0, 0, 100, 200]);
+  assert.deepEqual(applyMatrix([50, 50], m), [100, 200]);
+});
+
+test('computeAppearanceMatrix: handles a non-identity appearance Matrix (90-degree rotation)', () => {
+  // A 10x20 BBox rotated 90 degrees by its own Matrix becomes a 20x10
+  // "transformed appearance box"; fitting that into a 40x20 Rect should
+  // map all four BBox corners exactly onto the Rect's four corners.
+  const bbox = [0, 0, 10, 20];
+  const rotate90 = [0, 1, -1, 0, 0, 0];
+  const rect = [0, 0, 40, 20];
+  const m = computeAppearanceMatrix(bbox, rotate90, rect);
+
+  const mapped = [[0, 0], [10, 0], [0, 20], [10, 20]].map((p) => applyMatrix(p, m));
+  const xs = mapped.map((p) => p[0]);
+  const ys = mapped.map((p) => p[1]);
+  assert.deepEqual([Math.min(...xs), Math.max(...xs)], [0, 40]);
+  assert.deepEqual([Math.min(...ys), Math.max(...ys)], [0, 20]);
+});
+
+test('computeAppearanceMatrix: normalizes an out-of-order Rect', () => {
+  // Rect given as [x1,y1,x0,y0] (spec allows either corner order).
+  const m1 = computeAppearanceMatrix([0, 0, 10, 10], [1, 0, 0, 1, 0, 0], [0, 0, 20, 20]);
+  const m2 = computeAppearanceMatrix([0, 0, 10, 10], [1, 0, 0, 1, 0, 0], [20, 20, 0, 0]);
+  assert.deepEqual(m1, m2);
 });

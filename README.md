@@ -102,3 +102,13 @@ packaged one.
   no universal answer; the calibration sheet plus the two independent
   toggles (rotate 180°, reverse order) are meant to be tried in combination
   against a real single sheet before committing a whole book to paper.
+- **Annotation-based text on a page with a non-zero mediaBox origin.** Visible
+  text authored as a PDF annotation (e.g. a "FreeText"/typewriter comment
+  from a tool like PDF-XChange Editor, confirmed against a real user file)
+  is flattened into real page content before imposing, since pdf-lib's page
+  embedding otherwise drops annotations entirely. On a page whose mediaBox
+  doesn't start at (0, 0) — the same underlying pdf-lib quirk noted above for
+  cropBoxes — that flattened content can end up visibly offset rather than
+  pixel-perfect. It shows up rather than silently vanishing, which is the
+  fix that matters most; exact placement on that specific combination is a
+  follow-up.

@@ -312,6 +312,68 @@
     return best ? best.key : null;
   }
 
+  // ---------------------------------------------------------------------
+  // Annotation appearance flattening
+  // ---------------------------------------------------------------------
+  //
+  // pdf-lib's page-embedding (used by embedPdf/drawPage) copies only a
+  // page's /Contents and /Resources — it silently drops /Annots entirely.
+  // A PDF where visible text was added as an annotation rather than drawn
+  // into the content stream (e.g. a FreeText "comment"/"typewriter" note
+  // from a tool like PDF-XChange Editor — confirmed against a real
+  // user file) simply vanishes when imposed. The fix is to flatten each
+  // annotation's normal appearance stream into the page's actual content
+  // before embedding. This is the pure math for that: given the appearance
+  // stream's own BBox and Matrix, and the annotation's Rect, compute the
+  // single `cm` matrix that draws that appearance in the right place — the
+  // standard algorithm from the PDF spec (12.5.5, "Appearance Streams").
+
+  /** Standard PDF (row-vector) 2D affine matrix composition: apply m1, then m2. */
+  function multiplyMatrix(m1, m2) {
+    const [a1, b1, c1, d1, e1, f1] = m1;
+    const [a2, b2, c2, d2, e2, f2] = m2;
+    return [
+      a1 * a2 + b1 * c2,
+      a1 * b2 + b1 * d2,
+      c1 * a2 + d1 * c2,
+      c1 * b2 + d1 * d2,
+      e1 * a2 + f1 * c2 + e2,
+      e1 * b2 + f1 * d2 + f2,
+    ];
+  }
+
+  /**
+   * The `cm` matrix to draw an annotation's appearance XObject at the right
+   * place: transform the appearance stream's BBox corners by its own
+   * Matrix to get the "transformed appearance box", then find the
+   * scale+translate that maps that box onto the annotation's Rect (per the
+   * PDF spec — no rotation at this step, just fit by scaling), and combine
+   * that with the appearance's own Matrix into one matrix for the content
+   * stream's `cm` operator.
+   */
+  function computeAppearanceMatrix(bbox, matrix, rect) {
+    const [bx0, by0, bx1, by1] = bbox;
+    const m = matrix || [1, 0, 0, 1, 0, 0];
+    const corners = [[bx0, by0], [bx1, by0], [bx0, by1], [bx1, by1]].map(
+      ([x, y]) => [x * m[0] + y * m[2] + m[4], x * m[1] + y * m[3] + m[5]],
+    );
+    const txs = corners.map((c) => c[0]);
+    const tys = corners.map((c) => c[1]);
+    const tx0 = Math.min(...txs), tx1 = Math.max(...txs);
+    const ty0 = Math.min(...tys), ty1 = Math.max(...tys);
+
+    const [rx0raw, ry0raw, rx1raw, ry1raw] = rect;
+    const rx0 = Math.min(rx0raw, rx1raw), rx1 = Math.max(rx0raw, rx1raw);
+    const ry0 = Math.min(ry0raw, ry1raw), ry1 = Math.max(ry0raw, ry1raw);
+
+    const tw = tx1 - tx0, th = ty1 - ty0;
+    const sx = tw > 1e-9 ? (rx1 - rx0) / tw : 1;
+    const sy = th > 1e-9 ? (ry1 - ry0) / th : 1;
+    const fitMatrix = [sx, 0, 0, sy, rx0 - tx0 * sx, ry0 - ty0 * sy];
+
+    return multiplyMatrix(m, fitMatrix);
+  }
+
   return {
     paddedCount,
     sheetsForRange,
@@ -326,5 +388,7 @@
     computeRotatedPlacement,
     estimateFitScale,
     suggestFullScalePaper,
+    multiplyMatrix,
+    computeAppearanceMatrix,
   };
 });

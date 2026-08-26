@@ -1,7 +1,10 @@
 (function () {
 'use strict';
 
-const { PDFDocument, PDFName, rgb, degrees } = PDFLib;
+const {
+  PDFDocument, PDFName, PDFDict, PDFStream, rgb, degrees,
+  pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject,
+} = PDFLib;
 const {
   paddedCount,
   buildBalancedSignatures,
@@ -13,6 +16,7 @@ const {
   computeRotatedPlacement,
   estimateFitScale,
   suggestFullScalePaper,
+  computeAppearanceMatrix,
 } = PamphletMakerImposition;
 
 const PAPER_SIZES_IN = {
@@ -370,6 +374,8 @@ function yieldToUi() {
 async function loadPreparedSource(bytes) {
   const doc = await PDFDocument.load(bytes);
   for (const page of doc.getPages()) {
+    flattenAnnotations(doc, page);
+
     if (!page.node.has(PDFName.of('Contents'))) {
       page.translateContent(0, 0);
     }
@@ -384,6 +390,74 @@ async function loadPreparedSource(bytes) {
     }
   }
   return doc;
+}
+
+/**
+ * pdf-lib's page-embedding copies only a page's /Contents and /Resources —
+ * it silently drops /Annots entirely (confirmed against a real user file:
+ * page text added as a PDF-XChange Editor "FreeText" comment/typewriter
+ * annotation vanished completely when imposed, while ordinary drawn text on
+ * other pages was fine). This flattens each visible annotation's normal
+ * appearance stream into the page's actual content before embedding, using
+ * the PDF spec's appearance-stream placement algorithm (BBox transformed by
+ * the appearance's own Matrix, then fit to the annotation's Rect).
+ *
+ * Known limitation: on a page whose mediaBox does NOT start at (0, 0),
+ * flattened annotations can end up visibly offset (the same underlying
+ * pdf-lib embedding quirk noted above for cropBoxes, applied here to
+ * /Annots instead of /Contents) — content still appears rather than being
+ * silently dropped, which is the meaningful failure mode this fixes, but
+ * pixel-perfect placement on that combination is a follow-up.
+ */
+function flattenAnnotations(doc, page) {
+  const annots = page.node.Annots();
+  if (!annots) return;
+  const context = doc.context;
+  const HIDDEN = 2, NO_VIEW = 32;
+
+  for (let i = 0; i < annots.size(); i++) {
+    const annot = context.lookup(annots.get(i), PDFDict);
+    if (!annot) continue;
+
+    const flagsObj = annot.get(PDFName.of('F'));
+    const flags = flagsObj ? flagsObj.asNumber() : 0;
+    if (flags & HIDDEN || flags & NO_VIEW) continue;
+
+    const rectObj = annot.get(PDFName.of('Rect'));
+    if (!rectObj) continue;
+    const rect = rectObj.asArray().map((n) => n.asNumber());
+
+    const apObj = annot.get(PDFName.of('AP'));
+    if (!apObj) continue;
+    const ap = context.lookup(apObj, PDFDict);
+    let nRef = ap.get(PDFName.of('N'));
+    if (!nRef) continue;
+    let nResolved = context.lookup(nRef);
+    if (nResolved instanceof PDFDict && !(nResolved instanceof PDFStream)) {
+      // Appearance sub-dictionary keyed by state name (e.g. a checkbox) — use /AS to pick one.
+      const asName = annot.get(PDFName.of('AS'));
+      if (!asName) continue;
+      nRef = nResolved.get(asName);
+      if (!nRef) continue;
+      nResolved = context.lookup(nRef);
+    }
+    if (!(nResolved instanceof PDFStream)) continue;
+
+    const bboxObj = nResolved.dict.get(PDFName.of('BBox'));
+    if (!bboxObj) continue;
+    const bbox = bboxObj.asArray().map((n) => n.asNumber());
+    const matrixObj = nResolved.dict.get(PDFName.of('Matrix'));
+    const matrix = matrixObj ? matrixObj.asArray().map((n) => n.asNumber()) : [1, 0, 0, 1, 0, 0];
+
+    const cm = computeAppearanceMatrix(bbox, matrix, rect);
+    const xObjectKey = page.node.newXObject('FlatAnnot', nRef);
+    page.pushOperators(
+      pushGraphicsState(),
+      concatTransformationMatrix(...cm),
+      drawObject(xObjectKey),
+      popGraphicsState(),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------
