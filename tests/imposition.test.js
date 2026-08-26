@@ -18,6 +18,7 @@ const {
   suggestFullScalePaper,
   multiplyMatrix,
   computeAppearanceMatrix,
+  chooseEmbedBoundingBox,
 } = imposition;
 
 // ---------------------------------------------------------------------
@@ -476,4 +477,37 @@ test('computeAppearanceMatrix: normalizes an out-of-order Rect', () => {
   const m1 = computeAppearanceMatrix([0, 0, 10, 10], [1, 0, 0, 1, 0, 0], [0, 0, 20, 20]);
   const m2 = computeAppearanceMatrix([0, 0, 10, 10], [1, 0, 0, 1, 0, 0], [20, 20, 0, 0]);
   assert.deepEqual(m1, m2);
+});
+
+// ---------------------------------------------------------------------
+// chooseEmbedBoundingBox
+// ---------------------------------------------------------------------
+
+test('chooseEmbedBoundingBox: no cropBox difference — uses the mediaBox as-is, any origin', () => {
+  const mediaBox = { x: 152.93, y: 143.72, width: 306.14, height: 504.56 };
+  const bb = chooseEmbedBoundingBox(mediaBox, mediaBox);
+  assert.deepEqual(bb, { left: 152.93, bottom: 143.72, right: 459.07, top: 648.28 });
+});
+
+test('chooseEmbedBoundingBox: no cropBox at all — uses the mediaBox', () => {
+  const mediaBox = { x: 10, y: 20, width: 100, height: 200 };
+  const bb = chooseEmbedBoundingBox(mediaBox, null);
+  assert.deepEqual(bb, { left: 10, bottom: 20, right: 110, top: 220 });
+});
+
+test('chooseEmbedBoundingBox: a genuinely different cropBox is used instead, any origin', () => {
+  const mediaBox = { x: 0, y: 0, width: 400, height: 600 };
+  const cropBox = { x: 50, y: 50, width: 300, height: 500 };
+  const bb = chooseEmbedBoundingBox(mediaBox, cropBox);
+  assert.deepEqual(bb, { left: 50, bottom: 50, right: 350, top: 550 });
+});
+
+test('chooseEmbedBoundingBox: tiny floating-point differences do not count as a real crop', () => {
+  const mediaBox = { x: 152.929001, y: 143.720001, width: 306.142, height: 504.56 };
+  const cropBox = { x: 152.929, y: 143.72, width: 306.1420001, height: 504.5600001 };
+  const bb = chooseEmbedBoundingBox(mediaBox, cropBox);
+  assert.deepEqual(bb, {
+    left: mediaBox.x, bottom: mediaBox.y,
+    right: mediaBox.x + mediaBox.width, top: mediaBox.y + mediaBox.height,
+  });
 });

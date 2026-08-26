@@ -2,8 +2,7 @@
 'use strict';
 
 const {
-  PDFDocument, PDFName, PDFDict, PDFStream, rgb, degrees,
-  pushGraphicsState, popGraphicsState, concatTransformationMatrix, drawObject,
+  PDFDocument, PDFName, PDFDict, PDFStream, PDFRawStream, rgb, degrees, decodePDFRawStream,
 } = PDFLib;
 const {
   paddedCount,
@@ -17,6 +16,7 @@ const {
   estimateFitScale,
   suggestFullScalePaper,
   computeAppearanceMatrix,
+  chooseEmbedBoundingBox,
 } = PamphletMakerImposition;
 
 const PAPER_SIZES_IN = {
@@ -346,50 +346,49 @@ function yieldToUi() {
 }
 
 // ---------------------------------------------------------------------
-// Source page preparation — cropBox and rotation handling
+// Source page preparation — annotations, cropping, rotation, blank pages
 // ---------------------------------------------------------------------
 
 /**
- * pdf-lib's drawPage() composites a source page's raw content and ignores
- * both its /Rotate flag and its cropBox entirely (verified empirically: a
- * rotated page draws unrotated, and content outside a smaller cropBox still
- * shows through). Rotation is corrected for at draw time in
- * drawImposedSide() via computeRotatedPlacement(). Cropping with a
- * zero-origin cropBox — by far the common case, e.g. a page with bleed
- * trimmed off starting at (0, 0) — is corrected here by flattening the
- * cropBox into the mediaBox before embedding, so pdf-lib and everything
- * downstream just sees the cropped size. A cropBox with a *non-zero*
- * origin hits a separate pdf-lib quirk (setMediaBox with an inset origin
- * doesn't shift page content to compensate), so that rarer case is left
- * alone rather than applying a fix that would make alignment worse.
+ * pdf-lib's drawPage()/embedPdf() build a page's embedded form from
+ * `left: 0, bottom: 0, right: width, top: height` — ignoring the mediaBox's
+ * *actual* origin entirely. Any page whose mediaBox doesn't start at
+ * (0, 0) — confirmed in a real-world file, on every single page — then
+ * embeds with content shifted and clipped wrong. The fix used throughout
+ * this file is to never rely on that default: computeEmbedBoundingBoxes()
+ * builds an explicit, correct bounding box per page (from its cropBox if it
+ * has one, else its mediaBox) and every embed call below passes it via
+ * `doc.embedPages(pages, boundingBoxes)` instead of `embedPdf`. This also
+ * subsumes the old "flatten cropBox into mediaBox" approach — a cropBox at
+ * any origin is just another bounding box now, not only the zero-origin
+ * case.
  *
- * Also: a page with no /Contents entry at all (a genuinely empty page —
- * seen in the wild from at least one real-world export tool, on a trailing
- * blank page) makes pdf-lib's embedder throw "Can't embed page with
- * missing Contents" and abort the *entire* generation. translateContent(0,
- * 0) is a public pdf-lib API that, as a side effect of moving a page's
- * content by nothing, forces a real (empty) content stream into existence
- * — so a blank page just embeds as blank instead of crashing the whole job.
+ * A page with no /Contents entry at all (a genuinely empty page — seen in
+ * the wild from a real export tool, on a trailing blank page) makes
+ * pdf-lib's embedder throw "Can't embed page with missing Contents" and
+ * abort the *entire* generation. translateContent(0, 0) is a public pdf-lib
+ * API that, as a side effect of moving a page's content by nothing, forces
+ * a real (empty) content stream into existence — so a blank page just
+ * embeds as blank instead of crashing the whole job.
  */
 async function loadPreparedSource(bytes) {
   const doc = await PDFDocument.load(bytes);
   for (const page of doc.getPages()) {
     flattenAnnotations(doc, page);
-
     if (!page.node.has(PDFName.of('Contents'))) {
       page.translateContent(0, 0);
     }
-
-    const media = page.getMediaBox();
-    const crop = page.getCropBox();
-    const differs = Math.abs(media.x - crop.x) > 0.01 || Math.abs(media.y - crop.y) > 0.01 ||
-      Math.abs(media.width - crop.width) > 0.01 || Math.abs(media.height - crop.height) > 0.01;
-    const zeroOrigin = Math.abs(crop.x) < 0.01 && Math.abs(crop.y) < 0.01;
-    if (differs && zeroOrigin) {
-      page.setMediaBox(crop.x, crop.y, crop.width, crop.height);
-    }
   }
   return doc;
+}
+
+/** One { left, bottom, right, top } box per page, for doc.embedPages(). */
+function computeEmbedBoundingBoxes(srcDoc) {
+  return srcDoc.getPages().map((page) => {
+    const media = page.getMediaBox();
+    const crop = page.getCropBox();
+    return chooseEmbedBoundingBox(media, crop);
+  });
 }
 
 /**
@@ -397,23 +396,30 @@ async function loadPreparedSource(bytes) {
  * it silently drops /Annots entirely (confirmed against a real user file:
  * page text added as a PDF-XChange Editor "FreeText" comment/typewriter
  * annotation vanished completely when imposed, while ordinary drawn text on
- * other pages was fine). This flattens each visible annotation's normal
- * appearance stream into the page's actual content before embedding, using
- * the PDF spec's appearance-stream placement algorithm (BBox transformed by
- * the appearance's own Matrix, then fit to the annotation's Rect).
+ * other pages was fine).
  *
- * Known limitation: on a page whose mediaBox does NOT start at (0, 0),
- * flattened annotations can end up visibly offset (the same underlying
- * pdf-lib embedding quirk noted above for cropBoxes, applied here to
- * /Annots instead of /Contents) — content still appears rather than being
- * silently dropped, which is the meaningful failure mode this fixes, but
- * pixel-perfect placement on that combination is a follow-up.
+ * This flattens each visible annotation's normal appearance into the
+ * page's actual content before embedding — as a NEW, independent content
+ * stream with the appearance's own drawing commands *inlined directly*
+ * (not referenced via a nested Form XObject `Do` call). That distinction
+ * matters: invoking the appearance as a separate XObject reliably survived
+ * being saved and re-decoded on its own, but silently vanished — with no
+ * error, in every PDF viewer tested — the moment that whole page was then
+ * re-embedded into another document (pdf-lib's cross-context page copier,
+ * PDFObjectCopier). Inlining the same content directly into the page's own
+ * content stream avoids that nested-XObject path entirely and survives
+ * re-embedding correctly (verified pixel-for-pixel against the original
+ * page). The appearance's own font resources are merged into the page's
+ * Resources under fresh names to avoid collisions, and the placement uses
+ * the PDF spec's appearance-stream algorithm (BBox transformed by the
+ * appearance's own Matrix, then fit to the annotation's Rect).
  */
 function flattenAnnotations(doc, page) {
   const annots = page.node.Annots();
   if (!annots) return;
   const context = doc.context;
   const HIDDEN = 2, NO_VIEW = 32;
+  let fontCounter = 0;
 
   for (let i = 0; i < annots.size(); i++) {
     const annot = context.lookup(annots.get(i), PDFDict);
@@ -448,16 +454,54 @@ function flattenAnnotations(doc, page) {
     const bbox = bboxObj.asArray().map((n) => n.asNumber());
     const matrixObj = nResolved.dict.get(PDFName.of('Matrix'));
     const matrix = matrixObj ? matrixObj.asArray().map((n) => n.asNumber()) : [1, 0, 0, 1, 0, 0];
-
     const cm = computeAppearanceMatrix(bbox, matrix, rect);
-    const xObjectKey = page.node.newXObject('FlatAnnot', nRef);
-    page.pushOperators(
-      pushGraphicsState(),
-      concatTransformationMatrix(...cm),
-      drawObject(xObjectKey),
-      popGraphicsState(),
-    );
+
+    // Merge the appearance's own font resources into the page's, renamed
+    // to avoid colliding with the page's own /Fn keys.
+    const pageResources = page.node.Resources();
+    const apResources = nResolved.dict.lookupMaybe(PDFName.of('Resources'), PDFDict);
+    const rename = {};
+    if (apResources) {
+      const apFonts = apResources.lookupMaybe(PDFName.of('Font'), PDFDict);
+      if (apFonts) {
+        let pageFonts = pageResources.lookupMaybe(PDFName.of('Font'), PDFDict);
+        if (!pageFonts) {
+          pageFonts = context.obj({});
+          pageResources.set(PDFName.of('Font'), pageFonts);
+        }
+        for (const [key, value] of apFonts.entries()) {
+          const newName = `FlatFont${fontCounter++}`;
+          pageFonts.set(PDFName.of(newName), value);
+          rename[key.toString().replace(/^\//, '')] = newName;
+        }
+      }
+    }
+
+    const rawContentBytes = nResolved instanceof PDFRawStream
+      ? decodePDFRawStream(nResolved).decode()
+      : nResolved.getUnencodedContents();
+    let text = bytesToLatin1String(rawContentBytes);
+    for (const [oldName, newName] of Object.entries(rename)) {
+      text = text.split(`/${oldName} `).join(`/${newName} `);
+    }
+    const wrapped = `q\n${cm.join(' ')} cm\n${text}\nQ\n`;
+    const newStream = context.flateStream(stringToLatin1Bytes(wrapped), {});
+    page.node.addContentStream(context.register(newStream));
   }
+}
+
+/** Decode Latin-1 bytes to a string, browser-safe (no Node Buffer). */
+function bytesToLatin1String(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return s;
+}
+
+/** Encode a Latin-1 string back to bytes, browser-safe. */
+function stringToLatin1Bytes(str) {
+  const bytes = new Uint8Array(str.length);
+  for (let i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i) & 0xff;
+  return bytes;
 }
 
 // ---------------------------------------------------------------------
@@ -483,7 +527,10 @@ function drawImposedSide(doc, opts, slot, srcDoc, embeddedPages, creepShiftPt) {
     const embedded = embeddedPages[pos.pageNum - 1];
     const srcPage = srcDoc.getPage(pos.pageNum - 1);
     const rotationAngle = srcPage.getRotation().angle;
-    const { width: pageBoxW, height: pageBoxH } = srcPage.getSize();
+    // Use the *embedded* page's own dimensions, not srcPage.getSize(): when
+    // a cropBox is in play, the embed uses the crop's size, not the full
+    // mediaBox, and the two can differ.
+    const pageBoxW = embedded.width, pageBoxH = embedded.height;
 
     const margins = computeHalfMargins(pos.isLeft, opts.outerMarginPt, opts.gutterMarginPt);
     // Creep only ever pushes content further from the spine, regardless of
@@ -587,7 +634,7 @@ async function generate() {
   async function renderPass(label, sideSelector, sheetOrder) {
     const doc = await PDFDocument.create();
     const srcDoc = await loadPreparedSource(sourceBytes);
-    const embeddedPages = await doc.embedPdf(srcDoc, srcDoc.getPageIndices());
+    const embeddedPages = await doc.embedPages(srcDoc.getPages(), computeEmbedBoundingBoxes(srcDoc));
     for (const { sig, sheet, sheetIndex } of sheetOrder) {
       const creepShiftPt = creepShiftForSheetInSignature(sheetIndex, sig, opts);
       for (const side of sideSelector(sheet)) {
@@ -664,7 +711,7 @@ async function generateCalibrationSheet() {
 
   const doc = await PDFDocument.create();
   const srcDoc = await loadPreparedSource(sourceBytes);
-  const embeddedPages = await doc.embedPdf(srcDoc, srcDoc.getPageIndices());
+  const embeddedPages = await doc.embedPages(srcDoc.getPages(), computeEmbedBoundingBoxes(srcDoc));
 
   const frontPage = drawImposedSide(doc, opts, firstSheet.front, srcDoc, embeddedPages, 0);
   annotateCalibrationPage(frontPage, opts, 'FRONT');

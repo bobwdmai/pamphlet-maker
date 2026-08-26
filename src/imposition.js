@@ -312,6 +312,34 @@
     return best ? best.key : null;
   }
 
+  /**
+   * pdf-lib's default page-embedding assumes a page's visible area starts at
+   * (0, 0) — its BBox math is `left: 0, bottom: 0, right: width, top:
+   * height`, ignoring the mediaBox's actual origin entirely. Any page whose
+   * mediaBox does NOT start at (0, 0) — confirmed in a real-world file,
+   * every single page — then embeds with content shifted/clipped wrong.
+   *
+   * The fix is to always pass pdf-lib's embedder an *explicit* bounding box
+   * built from the page's own true geometry, instead of taking its buggy
+   * default. This also subsumes the separate old "flatten a same-origin
+   * cropBox into the mediaBox" workaround: a cropBox is just another
+   * bounding box, at any origin, and passing it directly here handles that
+   * case in general instead of only when its origin happens to be zero.
+   *
+   * `mediaBox`/`cropBox` are { x, y, width, height }; returns
+   * { left, bottom, right, top } — the shape pdf-lib's embedPage(s) expects.
+   */
+  function chooseEmbedBoundingBox(mediaBox, cropBox) {
+    const box = (cropBox && cropBoxDiffers(mediaBox, cropBox)) ? cropBox : mediaBox;
+    return { left: box.x, bottom: box.y, right: box.x + box.width, top: box.y + box.height };
+  }
+
+  function cropBoxDiffers(mediaBox, cropBox) {
+    const EPS = 0.01;
+    return Math.abs(mediaBox.x - cropBox.x) > EPS || Math.abs(mediaBox.y - cropBox.y) > EPS ||
+      Math.abs(mediaBox.width - cropBox.width) > EPS || Math.abs(mediaBox.height - cropBox.height) > EPS;
+  }
+
   // ---------------------------------------------------------------------
   // Annotation appearance flattening
   // ---------------------------------------------------------------------
@@ -390,5 +418,6 @@
     suggestFullScalePaper,
     multiplyMatrix,
     computeAppearanceMatrix,
+    chooseEmbedBoundingBox,
   };
 });
