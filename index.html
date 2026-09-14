@@ -33,6 +33,15 @@
       <h2><span class="badge">2</span> Sheet & layout</h2>
       <div class="row">
         <div class="field">
+          <label for="layoutMode">Fold style</label>
+          <select id="layoutMode">
+            <option value="booklet">Booklet (saddle-stitch, folded &amp; stapled)</option>
+            <option value="trifold">Tri-fold (single sheet, 3 panels — brochure/letter)</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:.5rem">
+        <div class="field">
           <label for="paperSize">Paper you'll print on</label>
           <select id="paperSize">
             <option value="letter">Letter (8.5 × 11 in)</option>
@@ -62,7 +71,7 @@
           <label for="gutterMargin">Extra spine/fold margin (in)</label>
           <input type="number" id="gutterMargin" step="0.05" min="0" max="5" value="0.15" />
         </div>
-        <div class="field">
+        <div class="field" id="signatureSizeField">
           <label for="signatureSize">Booklet grouping</label>
           <select id="signatureSize">
             <option value="0">Single booklet (all pages)</option>
@@ -77,9 +86,9 @@
 
       <div class="check" style="margin-top:.75rem">
         <input type="checkbox" id="foldLine" checked />
-        <label for="foldLine">Print a faint fold guide line down the center of each sheet</label>
+        <label for="foldLine" id="foldLineLabel">Print faint fold guide lines on each sheet</label>
       </div>
-      <div class="check" style="margin-top:.5rem">
+      <div class="check" style="margin-top:.5rem" id="creepEnabledRow">
         <input type="checkbox" id="creepEnabled" />
         <label for="creepEnabled">Compensate for paper thickness (creep) on thick booklets</label>
       </div>
@@ -149,13 +158,17 @@
       <section class="tutorial-section">
         <h3>Getting your file from Google Docs</h3>
         <p>File → Download → PDF Document (.pdf). Each Doc page becomes one PDF page, which is what this tool expects.</p>
-        <p>If you can, aim for a page count that's a multiple of 4 (e.g. 16, 20, 24) — a folded sheet always carries exactly 4 pages, so anything else gets padded with blank pages to complete the last sheet. Adding or trimming a page or two in Google Docs before exporting avoids that entirely.</p>
+        <p>If you can, aim for a page count that's a multiple of 4 for a booklet (e.g. 16, 20, 24) — a folded sheet always carries exactly 4 pages, so anything else gets padded with blank pages to complete the last sheet. For a tri-fold, aim for a multiple of 6 instead, since each tri-fold sheet carries 6 pages. Adding or trimming a page or two in Google Docs before exporting avoids that entirely.</p>
       </section>
       <section class="tutorial-section">
         <h3>Paper &amp; layout</h3>
         <p>Pick the paper size actually loaded in your printer. Each sheet prints in landscape with two book pages side by side, then folds down the middle.</p>
         <p>Long documents don't fold well as one giant booklet. This tool automatically splits them into <strong>signatures</strong> — smaller, evenly-sized booklets — that you fold, staple, and gather together, the same way real bound books are made.</p>
         <p>Each page is scaled down uniformly to fit its half of the sheet — text and images shrink together, since there's no way to keep text full-size while only shrinking images (that would mean re-typesetting the document, not imposing it). If your source document is a full Letter/A4 page, expect a noticeable shrink even on larger paper. For full-size text, set your source document's page size to roughly half the sheet size (e.g. 5.5 × 8.5 in for a Letter sheet) before exporting — the standard approach for self-published books.</p>
+      </section>
+      <section class="tutorial-section">
+        <h3>Tri-fold instead of a booklet</h3>
+        <p>Switch "Fold style" to Tri-fold for a single-sheet brochure: 6 pages become one sheet, printed front (pages 1–3, left to right) and back (pages 4–6, left to right), then folded into three panels — the standard letter/brochure fold. Each additional group of 6 pages becomes another independent sheet; there's no nesting or stapling, so booklet grouping and creep compensation don't apply in this mode.</p>
       </section>
       <section class="tutorial-section">
         <h3>No auto-duplex printer?</h3>

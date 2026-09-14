@@ -19,6 +19,10 @@ const {
   multiplyMatrix,
   computeAppearanceMatrix,
   chooseEmbedBoundingBox,
+  triFoldPaddedCount,
+  buildTriFoldSheets,
+  computeTriPanelMargins,
+  estimateTriFoldFitScale,
 } = imposition;
 
 // ---------------------------------------------------------------------
@@ -510,4 +514,63 @@ test('chooseEmbedBoundingBox: tiny floating-point differences do not count as a 
     left: mediaBox.x, bottom: mediaBox.y,
     right: mediaBox.x + mediaBox.width, top: mediaBox.y + mediaBox.height,
   });
+});
+
+// ---------------------------------------------------------------------
+// Tri-fold layout
+// ---------------------------------------------------------------------
+
+test('triFoldPaddedCount rounds up to the next multiple of 6', () => {
+  assert.equal(triFoldPaddedCount(0), 0);
+  assert.equal(triFoldPaddedCount(1), 6);
+  assert.equal(triFoldPaddedCount(6), 6);
+  assert.equal(triFoldPaddedCount(7), 12);
+  assert.equal(triFoldPaddedCount(12), 12);
+  assert.equal(triFoldPaddedCount(13), 18);
+});
+
+test('buildTriFoldSheets: single sheet, sequential front/back panel order', () => {
+  const sheets = buildTriFoldSheets(6);
+  assert.deepEqual(sheets, [{ front: [1, 2, 3], back: [4, 5, 6] }]);
+});
+
+test('buildTriFoldSheets: multiple sheets continue the sequence', () => {
+  const sheets = buildTriFoldSheets(12);
+  assert.deepEqual(sheets, [
+    { front: [1, 2, 3], back: [4, 5, 6] },
+    { front: [7, 8, 9], back: [10, 11, 12] },
+  ]);
+});
+
+test('buildTriFoldSheets: zero pages yields zero sheets', () => {
+  assert.deepEqual(buildTriFoldSheets(0), []);
+});
+
+test('buildTriFoldSheets: rejects a total that is not a multiple of 6', () => {
+  assert.throws(() => buildTriFoldSheets(8));
+});
+
+test('computeTriPanelMargins: only the two true outer edges get the plain outer margin', () => {
+  assert.deepEqual(computeTriPanelMargins(0, 10, 5), { left: 10, right: 15 });
+  assert.deepEqual(computeTriPanelMargins(1, 10, 5), { left: 15, right: 15 });
+  assert.deepEqual(computeTriPanelMargins(2, 10, 5), { left: 15, right: 10 });
+});
+
+test('estimateTriFoldFitScale: a page that fits at full size returns scale >= 1', () => {
+  // Letter sheet (792pt wide landscape) / 3 panels ~= 264pt wide panel.
+  const scale = estimateTriFoldFitScale({
+    pageWidthPt: 200, pageHeightPt: 300,
+    sheetWidthPt: 792, sheetHeightPt: 612,
+    outerMarginPt: 10, gutterMarginPt: 5,
+  });
+  assert.ok(scale >= 1);
+});
+
+test('estimateTriFoldFitScale: a page too wide for one panel must shrink', () => {
+  const scale = estimateTriFoldFitScale({
+    pageWidthPt: 500, pageHeightPt: 300,
+    sheetWidthPt: 792, sheetHeightPt: 612,
+    outerMarginPt: 10, gutterMarginPt: 5,
+  });
+  assert.ok(scale > 0 && scale < 1);
 });

@@ -17,6 +17,10 @@ const {
   suggestFullScalePaper,
   computeAppearanceMatrix,
   chooseEmbedBoundingBox,
+  triFoldPaddedCount,
+  buildTriFoldSheets,
+  computeTriPanelMargins,
+  estimateTriFoldFitScale,
 } = PamphletMakerImposition;
 
 const PAPER_SIZES_IN = {
@@ -57,6 +61,9 @@ const calibrationSection = document.getElementById('calibrationSection');
 const calibrateBtn = document.getElementById('calibrateBtn');
 const creepEnabledCheckbox = document.getElementById('creepEnabled');
 const creepField = document.getElementById('creepField');
+const layoutModeSel = document.getElementById('layoutMode');
+const signatureSizeField = document.getElementById('signatureSizeField');
+const creepEnabledRow = document.getElementById('creepEnabledRow');
 
 // ---------------------------------------------------------------------
 // Options wiring
@@ -66,6 +73,17 @@ paperSizeSel.addEventListener('change', () => {
   const isCustom = paperSizeSel.value === 'custom';
   customWidthField.style.display = isCustom ? '' : 'none';
   customHeightField.style.display = isCustom ? '' : 'none';
+  updateSummary();
+});
+
+layoutModeSel.addEventListener('change', () => {
+  const isTriFold = layoutModeSel.value === 'trifold';
+  // Signature grouping and creep only make sense when sheets nest inside
+  // one another (booklet mode) — a tri-fold sheet stands alone.
+  signatureSizeField.style.display = isTriFold ? 'none' : '';
+  creepEnabledRow.style.display = isTriFold ? 'none' : '';
+  creepField.style.display = (!isTriFold && creepEnabledCheckbox.checked) ? '' : 'none';
+  generateBtn.textContent = isTriFold ? 'Generate tri-fold PDF' : 'Generate booklet PDF';
   updateSummary();
 });
 
@@ -168,8 +186,27 @@ function outputBaseName() {
 // Summary / preview
 // ---------------------------------------------------------------------
 
+function isTriFoldMode() {
+  return layoutModeSel.value === 'trifold';
+}
+
 function updateSummary() {
   if (!sourcePageCount) { summaryEl.innerHTML = ''; previewGridEl.innerHTML = ''; return; }
+
+  if (isTriFoldMode()) {
+    const n = triFoldPaddedCount(sourcePageCount);
+    const blanks = n - sourcePageCount;
+    const sheets = buildTriFoldSheets(n);
+    summaryEl.innerHTML = `
+      <div><span class="ok">${sourcePageCount} pages</span> detected.</div>
+      <div>${triFoldBlankPagesExplanationHtml(blanks)}</div>
+      <div>${sheets.length} physical sheet(s) total.</div>
+      ${scaleWarningHtml()}
+    `;
+    renderTriFoldLayoutPreview(sheets);
+    return;
+  }
+
   const n = paddedCount(sourcePageCount);
   const blanks = n - sourcePageCount;
   const sigSize = parseInt(document.getElementById('signatureSize').value, 10);
@@ -202,6 +239,16 @@ function blankPagesExplanationHtml(blanks) {
 }
 
 /**
+ * A tri-fold sheet always contributes exactly 6 pages (3 front panels, 3
+ * back panels) — there's no such thing as folding a partial panel — so a
+ * page count that isn't a multiple of 6 needs blank filler pages.
+ */
+function triFoldBlankPagesExplanationHtml(blanks) {
+  if (blanks === 0) return 'Page count is already a multiple of 6 — no blank panels needed.';
+  return `A tri-fold sheet always makes 6 panels, so ${blanks} blank panel${blanks > 1 ? 's' : ''} will fill out the last sheet, at the end. To avoid blanks entirely, add or remove pages in your source document until the count is a multiple of 6.`;
+}
+
+/**
  * A page is scaled uniformly to fit its half of the sheet — text and
  * images shrink together, there's no way to keep text full-size while only
  * images shrink (that would mean re-typesetting, not imposing). Surfacing
@@ -212,7 +259,8 @@ function blankPagesExplanationHtml(blanks) {
 function scaleWarningHtml() {
   const opts = readOptionsQuiet();
   if (!opts || !sourcePageWidthPt || !sourcePageHeightPt) return '';
-  const scale = estimateFitScale({
+  const fitScaleFn = isTriFoldMode() ? estimateTriFoldFitScale : estimateFitScale;
+  const scale = fitScaleFn({
     pageWidthPt: sourcePageWidthPt,
     pageHeightPt: sourcePageHeightPt,
     sheetWidthPt: opts.sheetWidthPt,
@@ -283,6 +331,39 @@ function renderLayoutPreview(signatures) {
   }
 }
 
+/** Same idea as renderLayoutPreview, but 3 panels per side instead of 2. */
+function renderTriFoldLayoutPreview(sheets) {
+  previewGridEl.innerHTML = '';
+  const opts = readOptionsQuiet();
+  if (!opts) return;
+  const aspect = opts.sheetWidthPt / opts.sheetHeightPt;
+  const w = 240;
+  const h = Math.round(w / aspect);
+  const panelW = w / 3;
+
+  sheets.forEach((sheet, sheetIndex) => {
+    ['front', 'back'].forEach((side) => {
+      const panels = sheet[side];
+      const wrap = document.createElement('div');
+      wrap.className = 'preview-sheet';
+      const lines = [1, 2].map((i) => `<line x1="${panelW * i}" y1="0" x2="${panelW * i}" y2="${h}" stroke="currentColor" stroke-width="1" stroke-dasharray="3,3" opacity="0.35"/>`).join('');
+      const texts = panels.map((p, i) => `<text x="${panelW * i + panelW / 2}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle" font-size="14" fill="currentColor">${p > sourcePageCount ? '—' : p}</text>`).join('');
+      wrap.innerHTML = `
+        <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Sheet ${sheetIndex + 1} ${side}: panels ${panels.join(', ')}">
+          <rect x="0.5" y="0.5" width="${w - 1}" height="${h - 1}" fill="none" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+          ${lines}
+          ${texts}
+        </svg>
+      `;
+      const label = document.createElement('div');
+      label.className = 'preview-sheet-label';
+      label.textContent = `Sheet ${sheetIndex + 1} · ${side}`;
+      wrap.appendChild(label);
+      previewGridEl.appendChild(wrap);
+    });
+  });
+}
+
 // ---------------------------------------------------------------------
 // Options reading + validation
 // ---------------------------------------------------------------------
@@ -306,6 +387,7 @@ function readOptions() {
   const creepAmountIn = parseFloat(document.getElementById('creepAmount').value);
 
   return {
+    layoutMode: layoutModeSel.value,
     sheetWidthPt: sheetWidthIn * IN_TO_PT,
     sheetHeightPt: sheetHeightIn * IN_TO_PT,
     outerMarginPt: parseFloat(document.getElementById('outerMargin').value) * IN_TO_PT,
@@ -530,6 +612,52 @@ function stringToLatin1Bytes(str) {
  * document (for page size/rotation lookups); `embeddedPages` are that same
  * document's pages already embedded into `doc`.
  */
+/** Draws one page (or leaves it blank) into a [x0,x1] panel of the current sheet page. */
+function drawImposedPanel(page, opts, pageNum, x0, x1, margins, srcDoc, embeddedPages, creepShiftPt, isLeft) {
+  if (pageNum > sourcePageCount) return; // blank padding page
+  const embedded = embeddedPages[pageNum - 1];
+  const srcPage = srcDoc.getPage(pageNum - 1);
+  const rotationAngle = srcPage.getRotation().angle;
+  // Use the *embedded* page's own dimensions, not srcPage.getSize(): when
+  // a cropBox is in play, the embed uses the crop's size, not the full
+  // mediaBox, and the two can differ.
+  const pageBoxW = embedded.width, pageBoxH = embedded.height;
+
+  const m = { ...margins };
+  // Creep only ever pushes content further from the spine, regardless of
+  // which physical side (left/right) the spine happens to be on.
+  if (isLeft) m.right += creepShiftPt; else m.left += creepShiftPt;
+
+  const top = opts.outerMarginPt, bottom = opts.outerMarginPt;
+  const availW = (x1 - x0) - m.left - m.right;
+  const availH = opts.sheetHeightPt - top - bottom;
+  if (availW <= 0 || availH <= 0) return; // guarded by validateLayoutOptions before generation
+
+  const eff = effectiveDimensions(pageBoxW, pageBoxH, rotationAngle);
+  const scale = Math.min(availW / eff.width, availH / eff.height);
+  const drawW = eff.width * scale, drawH = eff.height * scale;
+  const targetX = x0 + m.left + (availW - drawW) / 2;
+  const targetY = bottom + (availH - drawH) / 2;
+
+  const placement = computeRotatedPlacement({
+    pageWidth: pageBoxW, pageHeight: pageBoxH, rotationAngle, targetX, targetY, scale,
+  });
+
+  page.drawPage(embedded, {
+    x: placement.x,
+    y: placement.y,
+    xScale: scale,
+    yScale: scale,
+    rotate: degrees(placement.rotateDegrees),
+  });
+}
+
+/**
+ * slot = [leftPageNum, rightPageNum], 1-indexed actual page numbers (may
+ * exceed sourcePageCount => blank). `srcDoc` is the prepared source
+ * document (for page size/rotation lookups); `embeddedPages` are that same
+ * document's pages already embedded into `doc`.
+ */
 function drawImposedSide(doc, opts, slot, srcDoc, embeddedPages, creepShiftPt) {
   const page = doc.addPage([opts.sheetWidthPt, opts.sheetHeightPt]);
   const halfWidth = opts.sheetWidthPt / 2;
@@ -539,42 +667,8 @@ function drawImposedSide(doc, opts, slot, srcDoc, embeddedPages, creepShiftPt) {
   ];
 
   for (const pos of positions) {
-    if (pos.pageNum > sourcePageCount) continue; // blank padding page
-    const embedded = embeddedPages[pos.pageNum - 1];
-    const srcPage = srcDoc.getPage(pos.pageNum - 1);
-    const rotationAngle = srcPage.getRotation().angle;
-    // Use the *embedded* page's own dimensions, not srcPage.getSize(): when
-    // a cropBox is in play, the embed uses the crop's size, not the full
-    // mediaBox, and the two can differ.
-    const pageBoxW = embedded.width, pageBoxH = embedded.height;
-
     const margins = computeHalfMargins(pos.isLeft, opts.outerMarginPt, opts.gutterMarginPt);
-    // Creep only ever pushes content further from the spine, regardless of
-    // which physical side (left/right) the spine happens to be on.
-    if (pos.isLeft) margins.right += creepShiftPt; else margins.left += creepShiftPt;
-
-    const top = opts.outerMarginPt, bottom = opts.outerMarginPt;
-    const availW = (pos.x1 - pos.x0) - margins.left - margins.right;
-    const availH = opts.sheetHeightPt - top - bottom;
-    if (availW <= 0 || availH <= 0) continue; // guarded by validateLayoutOptions before generation
-
-    const eff = effectiveDimensions(pageBoxW, pageBoxH, rotationAngle);
-    const scale = Math.min(availW / eff.width, availH / eff.height);
-    const drawW = eff.width * scale, drawH = eff.height * scale;
-    const targetX = pos.x0 + margins.left + (availW - drawW) / 2;
-    const targetY = bottom + (availH - drawH) / 2;
-
-    const placement = computeRotatedPlacement({
-      pageWidth: pageBoxW, pageHeight: pageBoxH, rotationAngle, targetX, targetY, scale,
-    });
-
-    page.drawPage(embedded, {
-      x: placement.x,
-      y: placement.y,
-      xScale: scale,
-      yScale: scale,
-      rotate: degrees(placement.rotateDegrees),
-    });
+    drawImposedPanel(page, opts, pos.pageNum, pos.x0, pos.x1, margins, srcDoc, embeddedPages, creepShiftPt, pos.isLeft);
   }
 
   if (opts.foldLine) {
@@ -585,6 +679,37 @@ function drawImposedSide(doc, opts, slot, srcDoc, embeddedPages, creepShiftPt) {
       color: rgb(0.75, 0.75, 0.75),
       dashArray: [4, 4],
       opacity: 0.6,
+    });
+  }
+
+  return page;
+}
+
+/**
+ * panels = [p1, p2, p3], 1-indexed actual page numbers, drawn left to right
+ * into the sheet's 3 equal-width thirds. No creep — a tri-fold sheet never
+ * nests inside another sheet, so there's nothing to compensate for.
+ */
+function drawImposedTriFoldSide(doc, opts, panels, srcDoc, embeddedPages) {
+  const page = doc.addPage([opts.sheetWidthPt, opts.sheetHeightPt]);
+  const panelWidth = opts.sheetWidthPt / 3;
+
+  for (let i = 0; i < 3; i++) {
+    const x0 = panelWidth * i, x1 = panelWidth * (i + 1);
+    const margins = computeTriPanelMargins(i, opts.outerMarginPt, opts.gutterMarginPt);
+    drawImposedPanel(page, opts, panels[i], x0, x1, margins, srcDoc, embeddedPages, 0, i === 0);
+  }
+
+  if (opts.foldLine) {
+    [1, 2].forEach((i) => {
+      page.drawLine({
+        start: { x: panelWidth * i, y: 0 },
+        end: { x: panelWidth * i, y: opts.sheetHeightPt },
+        thickness: 0.5,
+        color: rgb(0.75, 0.75, 0.75),
+        dashArray: [4, 4],
+        opacity: 0.6,
+      });
     });
   }
 
@@ -618,13 +743,91 @@ function creepShiftForSheetInSignature(sheetIndex, sig, opts) {
 }
 
 async function generate() {
+  const opts = readOptions();
+  if (opts.layoutMode === 'trifold') {
+    await generateTriFold(opts);
+  } else {
+    await generateBooklet(opts);
+  }
+}
+
+async function generateTriFold(opts) {
   logEl.textContent = 'Working…';
   downloadsEl.innerHTML = '';
   generatedFiles.forEach((f) => URL.revokeObjectURL(f.url));
   generatedFiles = [];
 
-  const opts = readOptions();
-  const validation = validateLayoutOptions(opts);
+  const validation = validateLayoutOptions(opts, 3);
+  if (!validation.valid) {
+    showError(validation.errors);
+    logEl.textContent = '';
+    return;
+  }
+
+  const n = triFoldPaddedCount(sourcePageCount);
+  const sheets = buildTriFoldSheets(n);
+  const baseName = outputBaseName();
+
+  let unitsDone = 0;
+  const totalUnits = sheets.length * (opts.manualDuplex ? 4 : 2);
+  showProgress('Preparing…');
+
+  async function renderPass(label, sideSelector, sheetOrder) {
+    const doc = await PDFDocument.create();
+    const srcDoc = await loadPreparedSource(sourceBytes);
+    const embeddedPages = await doc.embedPages(srcDoc.getPages(), computeEmbedBoundingBoxes(srcDoc));
+    for (const sheet of sheetOrder) {
+      for (const side of sideSelector(sheet)) {
+        drawImposedTriFoldSide(doc, opts, side.panels, srcDoc, embeddedPages);
+        if (side.rotate180) {
+          const p = doc.getPage(doc.getPageCount() - 1);
+          p.setRotation(degrees((p.getRotation().angle + 180) % 360));
+        }
+        unitsDone += 1;
+        setProgress(unitsDone / totalUnits, `${label}: sheet side ${unitsDone}`);
+        await yieldToUi();
+      }
+    }
+    const bytes = await doc.save();
+    return bytes;
+  }
+
+  const combinedBytes = await renderPass(
+    'Combined',
+    (sheet) => [{ panels: sheet.front, rotate180: false }, { panels: sheet.back, rotate180: false }],
+    sheets,
+  );
+  addDownload(`${baseName}-trifold.pdf`, combinedBytes, 'Main file — for auto-duplex printers');
+
+  if (opts.manualDuplex) {
+    const frontsBytes = await renderPass(
+      'Fronts',
+      (sheet) => [{ panels: sheet.front, rotate180: false }],
+      sheets,
+    );
+    addDownload(`${baseName}-trifold-fronts.pdf`, frontsBytes, 'Fronts only (print first)');
+
+    const backOrder = opts.backReverseOrder ? [...sheets].reverse() : sheets;
+    const backsBytes = await renderPass(
+      'Backs',
+      (sheet) => [{ panels: sheet.back, rotate180: opts.backRotate180 }],
+      backOrder,
+    );
+    addDownload(`${baseName}-trifold-backs.pdf`, backsBytes, 'Backs (print second, after flipping the stack)');
+  }
+
+  renderTriFoldInstructions(opts, sheets, n);
+  logEl.textContent = 'Done.';
+  hideProgress();
+}
+
+async function generateBooklet(opts) {
+  logEl.textContent = 'Working…';
+  downloadsEl.innerHTML = '';
+  generatedFiles.forEach((f) => URL.revokeObjectURL(f.url));
+  generatedFiles = [];
+
+  const validation = validateLayoutOptions(opts, 2);
   if (!validation.valid) {
     showError(validation.errors);
     logEl.textContent = '';
@@ -714,29 +917,41 @@ async function generateCalibrationSheet() {
   hideError();
 
   const opts = readOptions();
-  const validation = validateLayoutOptions(opts);
+  const isTriFold = opts.layoutMode === 'trifold';
+  const validation = validateLayoutOptions(opts, isTriFold ? 3 : 2);
   if (!validation.valid) {
     showError(validation.errors);
     logEl.textContent = '';
     return;
   }
 
-  const n = paddedCount(sourcePageCount);
-  const sheets = PamphletMakerImposition.sheetsForRange(1, Math.min(n, 4) || 4);
-  const firstSheet = sheets[0];
-
   const doc = await PDFDocument.create();
   const srcDoc = await loadPreparedSource(sourceBytes);
   const embeddedPages = await doc.embedPages(srcDoc.getPages(), computeEmbedBoundingBoxes(srcDoc));
 
-  const frontPage = drawImposedSide(doc, opts, firstSheet.front, srcDoc, embeddedPages, 0);
-  annotateCalibrationPage(frontPage, opts, 'FRONT');
-
-  const backPage = drawImposedSide(doc, opts, firstSheet.back, srcDoc, embeddedPages, 0);
-  if (opts.backRotate180) {
-    backPage.setRotation(degrees((backPage.getRotation().angle + 180) % 360));
+  let frontPage, backPage;
+  if (isTriFold) {
+    const n = triFoldPaddedCount(sourcePageCount);
+    const firstSheet = buildTriFoldSheets(Math.min(n, 6) || 6)[0];
+    frontPage = drawImposedTriFoldSide(doc, opts, firstSheet.front, srcDoc, embeddedPages);
+    annotateCalibrationPage(frontPage, opts, 'FRONT');
+    backPage = drawImposedTriFoldSide(doc, opts, firstSheet.back, srcDoc, embeddedPages);
+    if (opts.backRotate180) {
+      backPage.setRotation(degrees((backPage.getRotation().angle + 180) % 360));
+    }
+    annotateCalibrationPage(backPage, opts, 'BACK');
+  } else {
+    const n = paddedCount(sourcePageCount);
+    const sheets = PamphletMakerImposition.sheetsForRange(1, Math.min(n, 4) || 4);
+    const firstSheet = sheets[0];
+    frontPage = drawImposedSide(doc, opts, firstSheet.front, srcDoc, embeddedPages, 0);
+    annotateCalibrationPage(frontPage, opts, 'FRONT');
+    backPage = drawImposedSide(doc, opts, firstSheet.back, srcDoc, embeddedPages, 0);
+    if (opts.backRotate180) {
+      backPage.setRotation(degrees((backPage.getRotation().angle + 180) % 360));
+    }
+    annotateCalibrationPage(backPage, opts, 'BACK');
   }
-  annotateCalibrationPage(backPage, opts, 'BACK');
 
   const bytes = await doc.save();
   addDownload(`${outputBaseName()}-calibration.pdf`, bytes, 'One-sheet calibration test');
@@ -809,6 +1024,47 @@ function renderInstructions(opts, signatures, totalPages) {
         <tbody>${rows}</tbody>
       </table>
       <p class="hint">Each signature is an independent mini-booklet in the combined PDF, one after another. Fold and staple each one separately, then gather them in order.</p>
+    `;
+  } else {
+    signatureTableEl.innerHTML = '';
+  }
+}
+
+function renderTriFoldInstructions(opts, sheets, totalPages) {
+  instructionsPanel.style.display = '';
+  const paperLabel = paperSizeSel.options[paperSizeSel.selectedIndex].text;
+  const steps = [];
+  steps.push(`Load <strong>${escapeHtml(paperLabel)}</strong> paper in your printer.`);
+  if (opts.manualDuplex) {
+    steps.push(`Print <code>${escapeHtml(outputBaseName())}-trifold-fronts.pdf</code> first, at <strong>Actual size / 100% scale</strong> (not "fit to page").`);
+    steps.push(`Flip the printed stack the way your calibration test showed works, and print <code>${escapeHtml(outputBaseName())}-trifold-backs.pdf</code> onto the back.`);
+    steps.push(`If you haven't already, use the calibration sheet above to work out the right rotation/order combination before printing the whole job.`);
+  } else {
+    steps.push(`Open <code>${escapeHtml(outputBaseName())}-trifold.pdf</code> and print with <strong>two-sided / duplex</strong> printing turned on.`);
+    steps.push(`Set the duplex "flip" option to <strong>Flip on Short Edge</strong> — this is the setting for landscape, side-by-side panels. Print one sheet as a test first to confirm the back lines up before running the whole file.`);
+    steps.push(`Print at <strong>Actual size / 100% scale</strong>, not "fit to page", so the imposed panels stay full size.`);
+  }
+  steps.push(`Fold each sheet into thirds along the two guide lines: fold the right-hand panel in first, then fold the left-hand panel over it (the standard letter fold).`);
+  if (sheets.length > 1) {
+    steps.push(`Each sheet is independent — there's no nesting or stapling. Just keep the ${sheets.length} folded sheets in order.`);
+  }
+  instructionSteps.innerHTML = steps.map((s) => `<li>${s}</li>`).join('');
+
+  if (sheets.length > 1) {
+    const rows = sheets.map((sheet, idx) => {
+      const allPages = [...sheet.front, ...sheet.back];
+      const realPages = allPages.filter((p) => p <= sourcePageCount);
+      const blankCount = allPages.length - realPages.length;
+      const blankNote = blankCount > 0 ? ` <span class="hint" style="margin:0">(incl. ${blankCount} blank)</span>` : '';
+      const rangeLabel = realPages.length ? `${realPages[0]}–${realPages[realPages.length - 1]}` : '—';
+      return `<tr><td>${idx + 1}</td><td>${rangeLabel}${blankNote}</td></tr>`;
+    }).join('');
+    signatureTableEl.innerHTML = `
+      <table>
+        <thead><tr><th>Sheet</th><th>Page range</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p class="hint">Each sheet is an independent tri-fold brochure — fold them separately, no stapling or nesting needed.</p>
     `;
   } else {
     signatureTableEl.innerHTML = '';

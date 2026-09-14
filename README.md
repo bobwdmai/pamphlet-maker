@@ -1,9 +1,15 @@
 # Pamphlet Maker
 
 Turns a page-per-sheet PDF (for example, one exported from Google Docs via
-File → Download → PDF Document) into a print-ready, saddle-stitch booklet:
-pages are imposed two-per-sheet in the correct fold-and-staple order, with
-margins, signature splitting, creep compensation, and manual-duplex support.
+File → Download → PDF Document) into a print-ready booklet, in one of two
+fold styles:
+
+- **Booklet (saddle-stitch)** — pages imposed two-per-sheet in the correct
+  fold-and-staple order, with margins, signature splitting, creep
+  compensation, and manual-duplex support.
+- **Tri-fold (letter fold / brochure)** — pages imposed three-per-sheet
+  (6 pages per sheet, front and back), for a single-sheet brochure fold.
+  Each sheet is independent — no nesting or stapling.
 
 Runs entirely client-side in the browser via [pdf-lib](https://pdf-lib.js.org/).
 Nothing is uploaded anywhere.

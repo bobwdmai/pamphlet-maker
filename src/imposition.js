@@ -121,6 +121,58 @@
   }
 
   // ---------------------------------------------------------------------
+  // Tri-fold (letter-fold / brochure) layout
+  // ---------------------------------------------------------------------
+  //
+  // A tri-fold sheet is not nested like a saddle-stitch signature — each
+  // sheet stands alone, printed front and back, then folded into three
+  // panels. So there's no sheet-ordering math here, just a straightforward
+  // grouping of the page sequence into panels-of-3: front panels 1-3, back
+  // panels 4-6, then the next sheet picks up at page 7, and so on.
+
+  /** Round a page count up to the next multiple of 6 (3 panels per side, front+back). */
+  function triFoldPaddedCount(n) {
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.ceil(n / 6) * 6;
+  }
+
+  /**
+   * Split `totalPages` (a multiple of 6) into consecutive tri-fold sheets,
+   * each carrying 6 actual page numbers: 3 on the front (left-to-right,
+   * reading order) and 3 on the back (left-to-right, continuing reading
+   * order) — so panel 1 is the front-left panel of sheet 1, panel 6 is the
+   * back-right panel of sheet 1, and so on for later sheets.
+   */
+  function buildTriFoldSheets(totalPages) {
+    if (!Number.isInteger(totalPages) || totalPages < 0 || totalPages % 6 !== 0) {
+      throw new Error(`buildTriFoldSheets: totalPages must be a non-negative multiple of 6 (got ${totalPages})`);
+    }
+    const sheets = [];
+    for (let start = 1; start <= totalPages; start += 6) {
+      sheets.push({
+        front: [start, start + 1, start + 2],
+        back: [start + 3, start + 4, start + 5],
+      });
+    }
+    return sheets;
+  }
+
+  /**
+   * Margins for one of a tri-fold sheet's 3 equal-width panels. Only the
+   * two outer edges of the whole sheet (panel 0's left, panel 2's right)
+   * get the outer margin; every internal fold line (panel 0's right, panel
+   * 1's both edges, panel 2's left) gets outerMargin + gutterMargin, same
+   * reasoning as the booklet's computeHalfMargins: the fold needs *extra*
+   * clearance on top of the normal margin, not instead of it.
+   */
+  function computeTriPanelMargins(panelIndex, outerMargin, gutterMargin) {
+    const foldMargin = outerMargin + gutterMargin;
+    if (panelIndex === 0) return { left: outerMargin, right: foldMargin };
+    if (panelIndex === 2) return { left: foldMargin, right: outerMargin };
+    return { left: foldMargin, right: foldMargin };
+  }
+
+  // ---------------------------------------------------------------------
   // Layout: margins, validation, creep
   // ---------------------------------------------------------------------
 
@@ -144,8 +196,14 @@
    * { valid, errors } where errors is a list of human-readable strings.
    * Catches negative/zero sheet dimensions, absurd sheet sizes, negative
    * margins, and margins that would leave no room to draw a page.
+   *
+   * `panelsPerSide` is 2 for a booklet's half-sheet halves, 3 for a
+   * tri-fold's thirds — it only affects the final "is there room to draw
+   * anything" check below, since a narrower panel needs more margin
+   * headroom to still have usable width.
    */
-  function validateLayoutOptions(opts) {
+  function validateLayoutOptions(opts, panelsPerSide) {
+    const panels = panelsPerSide || 2;
     const errors = [];
     const { sheetWidthPt, sheetHeightPt, outerMarginPt, gutterMarginPt } = opts;
 
@@ -178,7 +236,7 @@
       Number.isFinite(outerMarginPt) && outerMarginPt >= 0 &&
       Number.isFinite(gutterMarginPt) && gutterMarginPt >= 0
     ) {
-      const halfWidth = sheetWidthPt / 2;
+      const halfWidth = sheetWidthPt / panels;
       const spineMargin = outerMarginPt + gutterMarginPt;
       const availW = halfWidth - outerMarginPt - spineMargin;
       const availH = sheetHeightPt - 2 * outerMarginPt;
@@ -402,6 +460,21 @@
     return multiplyMatrix(m, fitMatrix);
   }
 
+  /**
+   * Same idea as estimateFitScale, but for a tri-fold panel (a third of the
+   * sheet width instead of a half), using the panel-0 (outer + fold) margins.
+   */
+  function estimateTriFoldFitScale({ pageWidthPt, pageHeightPt, sheetWidthPt, sheetHeightPt, outerMarginPt, gutterMarginPt }) {
+    if (!Number.isFinite(pageWidthPt) || !Number.isFinite(pageHeightPt) || pageWidthPt <= 0 || pageHeightPt <= 0) return null;
+    if (!Number.isFinite(sheetWidthPt) || !Number.isFinite(sheetHeightPt) || sheetWidthPt <= 0 || sheetHeightPt <= 0) return null;
+    const panelWidth = sheetWidthPt / 3;
+    const margins = computeTriPanelMargins(0, outerMarginPt, gutterMarginPt);
+    const availW = panelWidth - margins.left - margins.right;
+    const availH = sheetHeightPt - 2 * outerMarginPt;
+    if (availW <= 0 || availH <= 0) return 0;
+    return Math.min(availW / pageWidthPt, availH / pageHeightPt);
+  }
+
   return {
     paddedCount,
     sheetsForRange,
@@ -419,5 +492,9 @@
     multiplyMatrix,
     computeAppearanceMatrix,
     chooseEmbedBoundingBox,
+    triFoldPaddedCount,
+    buildTriFoldSheets,
+    computeTriPanelMargins,
+    estimateTriFoldFitScale,
   };
 });
